@@ -1,17 +1,23 @@
 'use client';
 
-import { createContext, useState, useEffect, useContext, MouseEventHandler, useRef } from 'react';
+import { createContext, useState, useEffect, useContext, useRef, ChangeEvent } from 'react';
 
 import { Console, Hook, Unhook } from 'console-feed'
 
 import XXNDF from './ndf.json'
 
-import { CMix, DMClient, DMReceivedCallback, XXDKUtils } from '@/public/xxdk-wasm/dist/src';
+import { CMix, DMClient, XXDKUtils } from '@/public/xxdk-wasm/dist/src';
 import { Button } from '@nextui-org/button';
 import { Input } from '@nextui-org/input';
 import Dexie from 'dexie';
 import { DBConversation, DBDirectMessage } from '@/public/xxdk-wasm/dist/src/types/db';
 const xxdk = require('xxdk-wasm');
+
+const STATE_PATH = 'xx';
+const CMIX_INIT_KEY = 'cMixInitialized';
+const DM_ID_STORAGE_KEY = 'MyDMID';
+const CLIENT_LOG_PREFIX = '';
+const MESSAGE_DB_PASSWORD = 'MessageStoragePassword';
 
 // XXContext is used to pass in "XXDKUtils", which
 // provides access to all xx network functions to the children
@@ -23,35 +29,21 @@ export function XXNetwork({ children }: { children: React.ReactNode }) {
     const [XXCMix, setXXCMix] = useState<CMix | null>(null);
 
     useEffect(() => {
-        // By default the library uses an s3 bucket endpoint to download at
-        // https://elixxir-bins.s3-us-west-1.amazonaws.com/wasm/xxdk-wasm-[semver]
-        // the wasm resources, but you can host them locally by
-        // symlinking your public directory:
-        //   cd public && ln -s ../node_modules/xxdk-wasm xxdk-wasm && cd ..
-        // Then override with this function here:
-        xxdk.setXXDKBasePath(window!.location.href + 'xxdk-wasm');
+        xxdk.setXXDKBasePath(`${window!.location.origin}/xxdk-wasm`);
         xxdk.InitXXDK().then(async(xx: XXDKUtils) => {
             setXXDKUtils(xx)
 
-            // Now set up cMix, while other examples download
-            // you must hard code the ndf file for now in your application.          
             const ndf = JSON.stringify(XXNDF)
 
-            // The statePath is a localStorage path that holds cMix xx network state
-            const statePath = "xx"
-
-            // Instantiate a user with the state directory password "Hello"
             const secret = Buffer.from("Hello");
             const cMixParamsJSON = Buffer.from("");
 
-            console.log(secret)
-
-            const stateExists = localStorage.getItem('cMixInitialized');
+            const stateExists = localStorage.getItem(CMIX_INIT_KEY);
             if (stateExists === null || !stateExists) {
-                await xx.NewCmix(ndf, statePath, secret, "")
-                localStorage.setItem('cMixInitialized', 'true');
+                await xx.NewCmix(ndf, STATE_PATH, secret, "")
+                localStorage.setItem(CMIX_INIT_KEY, 'true');
             }
-            xx.LoadCmix(statePath, secret, cMixParamsJSON).then((net: CMix) => {
+            xx.LoadCmix(STATE_PATH, secret, cMixParamsJSON).then((net: CMix) => {
                 setXXCMix(net)
             })
         });
@@ -109,14 +101,13 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
             return;
         }
         
-        var dmIDStr = localStorage.getItem("MyDMID");
+        var dmIDStr = localStorage.getItem(DM_ID_STORAGE_KEY);
         if (dmIDStr === null) {
             console.log("Generating DM Identity...");
-            // NOTE: This will be deprecated in favor of generateCodenameIdentity(...)
             dmIDStr = Buffer.from(xx.GenerateChannelIdentity(xxNet.GetID())).toString('base64');
-            localStorage.setItem("MyDMID", dmIDStr);
+            localStorage.setItem(DM_ID_STORAGE_KEY, dmIDStr);
         }
-        console.log("Exported Codename Blob: " + dmIDStr);
+        console.log(`${CLIENT_LOG_PREFIX}Exported Codename Blob: ${dmIDStr}`);
         // Note: we parse to convert to Byte Array
         const dmID = new Uint8Array(Buffer.from(dmIDStr, 'base64'));
 
@@ -126,12 +117,12 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
         // DatabaseCipher encrypts using the given password, the max
         // size here the max for xx network DMs. 
         const cipher = xx.NewDatabaseCipher(xxNet.GetID(),
-            Buffer.from("MessageStoragePassword"), 725);
+            Buffer.from(MESSAGE_DB_PASSWORD), 725);
 
         // The following handles events, namely to decrypt messages
         const onDmEvent = (eventType: number, data: Uint8Array) => {
             const msg = Buffer.from(data)
-            console.log("onDmEvent called -> EventType: " + eventType + ", data: " + msg);
+            console.log(`${CLIENT_LOG_PREFIX}onDmEvent called -> EventType: ${eventType}, data: ${msg}`);
 
             dmReceiver.push(msg.toString('utf-8'));
             setDMReceiver([...dmReceiver]);
@@ -139,8 +130,6 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
             const db = dmDB.current
             if (db !== null) {
                 console.log("XXDB Lookup!!!!")
-                // If we have a valid db object, we can
-                // look up messages in the db and decrypt their contents
                 const e = JSON.parse(msg.toString("utf-8"));
                 Promise.all([
                     db.table<DBDirectMessage>("messages")
@@ -162,9 +151,6 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
                         return;
                     }
 
-                    // You can tell if a message ID is new by it's id 
-                    // (and you should be ordering them by date)
-                    // For now we can just decrypt and print repeats
                     const plaintext = Buffer.from(cipher.Decrypt(message.text));
                     dmReceiver.push("Decrypted Message: " + plaintext.toString('utf-8'));
                     setDMReceiver([...dmReceiver]);
@@ -176,32 +162,26 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
         // Start a wasm worker for indexedDB that handles 
         // DM reads and writes and create DM object with it
         xxdk.dmIndexedDbWorkerPath().then((workerPath: string) => {
-            // NOTE: important to explicitly convert to string here
-            // will be fixed in future releases.
             const workerStr = workerPath.toString()
             console.log("DM Worker Path: " + workerPath.toString());
             xx.NewDMClientWithIndexedDb(xxNet.GetID(), notifications.GetID(),
                 cipher.GetID(), workerStr, dmID,
                 { EventUpdate: onDmEvent }).then((client) => {
-                    console.log("DMTOKEN: " + client.GetToken());
-                    console.log("DMPUBKEY: " + Buffer.from(client.GetPublicKey()).toString('base64'));
+                    const token = client.GetToken();
+                    const pubKey = Buffer.from(client.GetPublicKey()).toString('base64');
+                    console.log(`${CLIENT_LOG_PREFIX}DMTOKEN: ${token}`);
+                    console.log(`${CLIENT_LOG_PREFIX}DMPUBKEY: ${pubKey}`);
 
-                    // Once we know our public key, that is the name of our database
-                    // We have to remove the padding from base64 to get the db name
-                    const dbName = Buffer.from(client.GetPublicKey()).toString('base64').replace(/={1,2}$/, '');
+                    const dbName = pubKey.replace(/={1,2}$/, '');
                     const db = new Dexie(dbName + "_speakeasy_dm")
                     db.open().then(() => {
                         console.log(db);
                         dmDB.current = db;
                     });
 
-                    // Once all of our clients are loaded we can start
-                    // listening to the network
                     xxNet.StartNetworkFollower(10000);
                     xxNet.WaitForNetwork(30000)
 
-                    // When the network goes healthy, signal that to anything
-                    // waiting on the client that it is ready.
                     setDMClient(client);
                 });
         });
@@ -217,51 +197,153 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
 }
 
 // XXDMSend
-export async function XXDMSend(dm: DMClient, msg: string): Promise<boolean> {
-    const myToken = dm.GetToken();
-    const myPubkey = dm.GetPublicKey();
+export async function XXDMSend(dm: DMClient, msg: string, recipientPubKey: string, recipientToken: string): Promise<boolean> {
+    try {
+        const cleanedMessage = msg.trim();
+        if (!cleanedMessage) {
+            throw new Error("Message cannot be empty");
+        }
+        const cleanedPubKey = recipientPubKey.trim();
+        if (!cleanedPubKey) {
+            throw new Error("Recipient public key is required");
+        }
+        const pubKeyBytes = Buffer.from(cleanedPubKey, 'base64');
+        if (pubKeyBytes.length === 0) {
+            throw new Error("Recipient public key is invalid");
+        }
+        const tokenStr = recipientToken.trim();
+        if (!tokenStr) {
+            throw new Error("Recipient token is required");
+        }
+        const tokenNumber = Number(tokenStr);
+        if (!Number.isFinite(tokenNumber)) {
+            throw new Error("Recipient token must be a number");
+        }
 
-    return await dm.SendText(myPubkey, myToken, msg, 0, Buffer.from("")).then((sendReport) => {
-        console.log(sendReport);
+        await dm.SendText(pubKeyBytes, tokenNumber, cleanedMessage, 0, Buffer.from(""));
+        console.log(`${CLIENT_LOG_PREFIX}✅ Message sent successfully: ${cleanedMessage}`);
         return true;
-    }).catch((err) => {
-        console.log("could not send: " + err)
-        return false
-    });
+    } catch (err) {
+        console.error(`${CLIENT_LOG_PREFIX}could not send: `, err);
+        return false;
+    }
 }
 
-export function XXMsgSender() {
+type XXMsgSenderProps = {
+    recipientLabel?: string;
+    recipientTokenLabel?: string;
+    recipientPubKeyLabel?: string;
+    buttonText?: string;
+};
+
+export function XXMsgSender({
+    recipientLabel = "Recipient",
+    recipientTokenLabel = "Recipient's Token",
+    recipientPubKeyLabel = "Recipient's Public Key",
+    buttonText = "Send Message",
+}: XXMsgSenderProps) {
     const dm = useContext(XXDMClient);
     const [msgToSend, setMessage] = useState<string>("");
-
-    const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const newMsg = event.target.value;
-        console.log(newMsg);
-        setMessage(newMsg);
-    }
+    const [recipientToken, setRecipientToken] = useState<string>("");
+    const [recipientPubKey, setRecipientPubKey] = useState<string>("");
+    const [status, setStatus] = useState<string>("");
+    const [error, setError] = useState<string>("");
 
     const handleSubmit = async () => {
         if (dm === null) {
+            setError("DM Client not ready yet!");
             return;
         }
-        if (await XXDMSend(dm, msgToSend)) {
+        if (!msgToSend.trim()) {
+            setError("Please enter a message to send!");
+            return;
+        }
+        if (!recipientToken || !recipientPubKey) {
+            setError("Please enter recipient's public key and token!");
+            return;
+        }
+        setError("");
+        setStatus("");
+        const success = await XXDMSend(dm, msgToSend, recipientPubKey, recipientToken);
+        if (success) {
             setMessage("");
+            setStatus("✅ Message sent successfully");
+        } else {
+            setError("Failed to send message. Check console for details.");
         }
     }
 
     return (
-        <>
-        <div className="flex flex-grow p-2">
-            <Input type="text" placeholder="Type message to send..."
-                    value={msgToSend}
-                    onChange={handleInputChange}/>
+        <div className="flex w-full flex-col gap-3 p-4">
+            <div className="grid w-full gap-3 md:grid-cols-2">
+                <Input
+                    label={recipientTokenLabel}
+                    placeholder={`Paste ${recipientLabel}'s token`}
+                    value={recipientToken}
+                    onChange={(e) => setRecipientToken(e.target.value)}
+                    labelPlacement="outside"
+                />
+                <Input
+                    label={recipientPubKeyLabel}
+                    placeholder={`Paste ${recipientLabel}'s public key (base64)`}
+                    value={recipientPubKey}
+                    onChange={(e) => setRecipientPubKey(e.target.value)}
+                    labelPlacement="outside"
+                />
+            </div>
+            <Input
+                label="Message"
+                placeholder="Type message to send..."
+                value={msgToSend}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setMessage(event.target.value)}
+                labelPlacement="outside"
+            />
+            <div className="flex justify-end">
+                <Button size="md" color="primary" onClick={handleSubmit}>
+                    {buttonText}
+                </Button>
+            </div>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            {status && <p className="text-sm text-green-600">{status}</p>}
         </div>
-        <div className="flex p-2">
-            <Button size="md" color="primary" onClick={handleSubmit}>
-            Submit
-            </Button>
+    )
+}
+
+export function XXMyCredentials({ title = "📋 MY CREDENTIALS", accentClass = "border-blue-300 bg-blue-50" }: { title?: string; accentClass?: string }) {
+    const dm = useContext(XXDMClient);
+    const [token, setToken] = useState<string>("");
+    const [pubKey, setPubKey] = useState<string>("");
+
+    useEffect(() => {
+        if (!dm) {
+            return;
+        }
+        setToken(String(dm.GetToken()));
+        setPubKey(Buffer.from(dm.GetPublicKey()).toString('base64'));
+    }, [dm]);
+
+    return (
+        <div className={`w-full rounded border p-4 ${accentClass}`}>
+            <p className="font-semibold">{title}</p>
+            {dm ? (
+                <div className="mt-3 flex flex-col gap-3">
+                    <Input
+                        label="My Token"
+                        value={token}
+                        isReadOnly
+                        labelPlacement="outside"
+                    />
+                    <Input
+                        label="My Public Key"
+                        value={pubKey}
+                        isReadOnly
+                        labelPlacement="outside"
+                    />
+                </div>
+            ) : (
+                <p className="text-sm text-gray-600">Initializing credentials...</p>
+            )}
         </div>
-        </>
     )
 }
 
@@ -275,7 +357,7 @@ export function XXDirectMessagesReceived() {
         )
     }
 
-    const msgOut = msgs.map(m => <div className="[overflow-anchor:none]">{m}</div>);
+    const msgOut = msgs.map((m, idx) => <div key={`${idx}-${m}`} className="[overflow-anchor:none] break-words">{m}</div>);
     return (
         msgOut
     )
