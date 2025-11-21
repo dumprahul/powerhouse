@@ -9,6 +9,8 @@ import XXNDF from './ndf.json'
 import { CMix, DMClient, XXDKUtils } from '@/public/xxdk-wasm/dist/src';
 import { Button } from '@nextui-org/button';
 import { Input } from '@nextui-org/input';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@nextui-org/modal';
+import { useDisclosure } from '@nextui-org/react';
 import Dexie from 'dexie';
 import { DBConversation, DBDirectMessage } from '@/public/xxdk-wasm/dist/src/types/db';
 const xxdk = require('xxdk-wasm');
@@ -24,11 +26,16 @@ const MESSAGE_DB_PASSWORD = 'MessageStoragePassword';
  
 const XXContext = createContext<XXDKUtils | null>(null);
 const XXNet = createContext<CMix | null>(null);
+const SDKStatusContext = createContext<'initializing' | 'ready' | 'error'>('initializing');
+const CredentialsStatusContext = createContext<'initializing' | 'ready' | 'error'>('initializing');
+
 export function XXNetwork({ children }: { children: React.ReactNode }) {
     const [XXDKUtils, setXXDKUtils] = useState<XXDKUtils | null>(null)
     const [XXCMix, setXXCMix] = useState<CMix | null>(null);
+    const [sdkStatus, setSdkStatus] = useState<'initializing' | 'ready' | 'error'>('initializing');
 
     useEffect(() => {
+        setSdkStatus('initializing');
         xxdk.setXXDKBasePath(`${window!.location.origin}/xxdk-wasm`);
         xxdk.InitXXDK().then(async(xx: XXDKUtils) => {
             setXXDKUtils(xx)
@@ -45,16 +52,25 @@ export function XXNetwork({ children }: { children: React.ReactNode }) {
             }
             xx.LoadCmix(STATE_PATH, secret, cMixParamsJSON).then((net: CMix) => {
                 setXXCMix(net)
-            })
+                setSdkStatus('ready');
+            }).catch((err: any) => {
+                console.error('Failed to load cMix:', err);
+                setSdkStatus('error');
+            });
+        }).catch((err: any) => {
+            console.error('Failed to initialize XXDK:', err);
+            setSdkStatus('error');
         });
     }, [])
 
     return (
-        <XXContext.Provider value={XXDKUtils}>
-            <XXNet.Provider value={XXCMix}>
-            { children }
-            </XXNet.Provider>
-        </XXContext.Provider>
+        <SDKStatusContext.Provider value={sdkStatus}>
+            <XXContext.Provider value={XXDKUtils}>
+                <XXNet.Provider value={XXCMix}>
+                { children }
+                </XXNet.Provider>
+            </XXContext.Provider>
+        </SDKStatusContext.Provider>
     )
 }
 
@@ -91,6 +107,7 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
 
     const [dmReceiver, setDMReceiver] = useState<String[]>([]);
     const [dmClient, setDMClient] = useState<DMClient | null>(null);
+    const [credentialsStatus, setCredentialsStatus] = useState<'initializing' | 'ready' | 'error'>('initializing');
     // NOTE: a ref is used instead of state because changes should not
     // cause a rerender, and also our handler function will need
     // to be able to access the db object when it is set.
@@ -101,6 +118,7 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
             return;
         }
         
+        setCredentialsStatus('initializing');
         var dmIDStr = localStorage.getItem(DM_ID_STORAGE_KEY);
         if (dmIDStr === null) {
             console.log("Generating DM Identity...");
@@ -183,16 +201,25 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
                     xxNet.WaitForNetwork(30000)
 
                     setDMClient(client);
+                    setCredentialsStatus('ready');
+                }).catch((err: any) => {
+                    console.error('Failed to create DM client:', err);
+                    setCredentialsStatus('error');
                 });
+        }).catch((err: any) => {
+            console.error('Failed to get DM worker path:', err);
+            setCredentialsStatus('error');
         });
     }, [xx, xxNet]);
 
     return (
-        <XXDMClient.Provider value={dmClient}>
-            <XXDMReceiver.Provider value={dmReceiver}>
-            { children }
-            </XXDMReceiver.Provider>
-        </XXDMClient.Provider>
+        <CredentialsStatusContext.Provider value={credentialsStatus}>
+            <XXDMClient.Provider value={dmClient}>
+                <XXDMReceiver.Provider value={dmReceiver}>
+                { children }
+                </XXDMReceiver.Provider>
+            </XXDMClient.Provider>
+        </CredentialsStatusContext.Provider>
     );
 }
 
@@ -313,6 +340,7 @@ export function XXMyCredentials({ title = "📋 MY CREDENTIALS", accentClass = "
     const dm = useContext(XXDMClient);
     const [token, setToken] = useState<string>("");
     const [pubKey, setPubKey] = useState<string>("");
+    const { isOpen, onOpen, onClose } = useDisclosure();
 
     useEffect(() => {
         if (!dm) {
@@ -323,28 +351,93 @@ export function XXMyCredentials({ title = "📋 MY CREDENTIALS", accentClass = "
     }, [dm]);
 
     return (
-        <div className={`w-full rounded border p-4 ${accentClass}`}>
-            <p className="font-semibold">{title}</p>
-            {dm ? (
-                <div className="mt-3 flex flex-col gap-3">
-                    <Input
-                        label="My Token"
-                        value={token}
-                        isReadOnly
-                        labelPlacement="outside"
-                    />
-                    <Input
-                        label="My Public Key"
-                        value={pubKey}
-                        isReadOnly
-                        labelPlacement="outside"
-                    />
+        <>
+            <div className={`w-full rounded-lg border-2 p-4 shadow-sm ${accentClass}`}>
+                <div className="flex items-center justify-between">
+                    <p className="font-semibold text-lg">{title}</p>
+                    <Button 
+                        size="sm" 
+                        color="primary" 
+                        variant="flat"
+                        onPress={onOpen}
+                        isDisabled={!dm}
+                    >
+                        View Details
+                    </Button>
                 </div>
-            ) : (
-                <p className="text-sm text-gray-600">Initializing credentials...</p>
-            )}
-        </div>
+                {dm ? (
+                    <div className="mt-3 flex flex-col gap-2">
+                        <div className="text-sm">
+                            <span className="font-medium">Token: </span>
+                            <span className="text-gray-600">{token.substring(0, 20)}...</span>
+                        </div>
+                        <div className="text-sm">
+                            <span className="font-medium">Public Key: </span>
+                            <span className="text-gray-600">{pubKey.substring(0, 30)}...</span>
+                        </div>
+                    </div>
+                ) : (
+                    <p className="text-sm text-gray-600 mt-2">Initializing credentials...</p>
+                )}
+            </div>
+
+            <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">
+                <ModalContent>
+                    <ModalHeader className="flex flex-col gap-1">
+                        <h2 className="text-2xl font-bold">My Credentials</h2>
+                        <p className="text-sm text-gray-500">Share these credentials to receive messages</p>
+                    </ModalHeader>
+                    <ModalBody>
+                        {dm ? (
+                            <div className="flex flex-col gap-4">
+                                <Input
+                                    label="My Token"
+                                    value={token}
+                                    isReadOnly
+                                    labelPlacement="outside"
+                                    description="Share this token with others so they can send you messages"
+                                />
+                                <Input
+                                    label="My Public Key"
+                                    value={pubKey}
+                                    isReadOnly
+                                    labelPlacement="outside"
+                                    description="Share this public key along with your token"
+                                />
+                            </div>
+                        ) : (
+                            <p className="text-center text-gray-600 py-4">Initializing credentials...</p>
+                        )}
+                    </ModalBody>
+                    <ModalFooter>
+                        <Button color="danger" variant="light" onPress={onClose}>
+                            Close
+                        </Button>
+                        {dm && (
+                            <Button 
+                                color="primary" 
+                                onPress={() => {
+                                    navigator.clipboard.writeText(`Token: ${token}\nPublic Key: ${pubKey}`);
+                                    alert('Credentials copied to clipboard!');
+                                }}
+                            >
+                                Copy All
+                            </Button>
+                        )}
+                    </ModalFooter>
+                </ModalContent>
+            </Modal>
+        </>
     )
+}
+
+// Export status hooks for use in page
+export function useSDKStatus() {
+    return useContext(SDKStatusContext);
+}
+
+export function useCredentialsStatus() {
+    return useContext(CredentialsStatusContext);
 }
 
 // XXDirectMessagesReceived is just a buffer of received event messages
