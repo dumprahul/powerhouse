@@ -46,6 +46,7 @@ The off-chain resolver service that receives, verifies, and processes whistleblo
 ## 🚀 Getting Started
 
 ### Setup cmixx (User Client)
+Please disable CORS Error in Browser you are using(Chrome Preffered with CORS Error Disabled)
 
 1. **Navigate to the cmixx directory:**
    ```bash
