@@ -24,8 +24,8 @@ async function main() {
     
     //Create the transaction and freeze for manual signing
     const txTokenCreate = await new TokenCreateTransaction()
-      .setTokenName("WHISTLEPODU")
-      .setTokenSymbol("WP")
+      .setTokenName("WHISTLE")
+      .setTokenSymbol("WHISTLE")
       .setTokenType(TokenType.FungibleCommon)
       .setTreasuryAccountId(MY_ACCOUNT_ID)
       .setInitialSupply(500000000000000000)
