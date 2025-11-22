@@ -9,6 +9,8 @@ import XXNDF from './ndf.json'
 import { CMix, DMClient, XXDKUtils } from '@/public/xxdk-wasm/dist/src';
 import { Button } from '@nextui-org/button';
 import { Input } from '@nextui-org/input';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@nextui-org/modal';
+import { useDisclosure } from '@nextui-org/react';
 import Dexie from 'dexie';
 import { DBConversation, DBDirectMessage } from '@/public/xxdk-wasm/dist/src/types/db';
 const xxdk = require('xxdk-wasm');
@@ -28,11 +30,16 @@ const HARDCODED_PUBLIC_KEY = 'C0nFOJ9kcaSz6cN5/aDqiAnzOVXfC9ogg7JRvzrZ76E=';
  
 const XXContext = createContext<XXDKUtils | null>(null);
 const XXNet = createContext<CMix | null>(null);
+const SDKStatusContext = createContext<'initializing' | 'ready' | 'error'>('initializing');
+const CredentialsStatusContext = createContext<'initializing' | 'ready' | 'error'>('initializing');
+
 export function XXNetwork({ children }: { children: React.ReactNode }) {
     const [XXDKUtils, setXXDKUtils] = useState<XXDKUtils | null>(null)
     const [XXCMix, setXXCMix] = useState<CMix | null>(null);
+    const [sdkStatus, setSdkStatus] = useState<'initializing' | 'ready' | 'error'>('initializing');
 
     useEffect(() => {
+        setSdkStatus('initializing');
         xxdk.setXXDKBasePath(`${window!.location.origin}/xxdk-wasm`);
         xxdk.InitXXDK().then(async(xx: XXDKUtils) => {
             setXXDKUtils(xx)
@@ -49,16 +56,25 @@ export function XXNetwork({ children }: { children: React.ReactNode }) {
             }
             xx.LoadCmix(STATE_PATH, secret, cMixParamsJSON).then((net: CMix) => {
                 setXXCMix(net)
-            })
+                setSdkStatus('ready');
+            }).catch((err: any) => {
+                console.error('Failed to load cMix:', err);
+                setSdkStatus('error');
+            });
+        }).catch((err: any) => {
+            console.error('Failed to initialize XXDK:', err);
+            setSdkStatus('error');
         });
     }, [])
 
     return (
-        <XXContext.Provider value={XXDKUtils}>
-            <XXNet.Provider value={XXCMix}>
-            { children }
-            </XXNet.Provider>
-        </XXContext.Provider>
+        <SDKStatusContext.Provider value={sdkStatus}>
+            <XXContext.Provider value={XXDKUtils}>
+                <XXNet.Provider value={XXCMix}>
+                { children }
+                </XXNet.Provider>
+            </XXContext.Provider>
+        </SDKStatusContext.Provider>
     )
 }
 
@@ -95,6 +111,7 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
 
     const [dmReceiver, setDMReceiver] = useState<String[]>([]);
     const [dmClient, setDMClient] = useState<DMClient | null>(null);
+    const [credentialsStatus, setCredentialsStatus] = useState<'initializing' | 'ready' | 'error'>('initializing');
     // NOTE: a ref is used instead of state because changes should not
     // cause a rerender, and also our handler function will need
     // to be able to access the db object when it is set.
@@ -105,6 +122,7 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
             return;
         }
         
+        setCredentialsStatus('initializing');
         // Use hardcoded identity if available, otherwise generate new one
         // Note: The identity blob must produce the hardcoded token and public key
         var dmIDStr = localStorage.getItem(DM_ID_STORAGE_KEY);
@@ -201,16 +219,25 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
                     xxNet.WaitForNetwork(30000)
 
                     setDMClient(client);
+                    setCredentialsStatus('ready');
+                }).catch((err: any) => {
+                    console.error('Failed to create DM client:', err);
+                    setCredentialsStatus('error');
                 });
+        }).catch((err: any) => {
+            console.error('Failed to get DM worker path:', err);
+            setCredentialsStatus('error');
         });
     }, [xx, xxNet]);
 
     return (
-        <XXDMClient.Provider value={dmClient}>
-            <XXDMReceiver.Provider value={dmReceiver}>
-            { children }
-            </XXDMReceiver.Provider>
-        </XXDMClient.Provider>
+        <CredentialsStatusContext.Provider value={credentialsStatus}>
+            <XXDMClient.Provider value={dmClient}>
+                <XXDMReceiver.Provider value={dmReceiver}>
+                { children }
+                </XXDMReceiver.Provider>
+            </XXDMClient.Provider>
+        </CredentialsStatusContext.Provider>
     );
 }
 
@@ -329,33 +356,102 @@ export function XXMsgSender({
 
 export function XXMyCredentials({ title = "📋 MY CREDENTIALS", accentClass = "border-blue-300 bg-blue-50" }: { title?: string; accentClass?: string }) {
     const dm = useContext(XXDMClient);
-    // Always use hardcoded values for Client 2
     const [token] = useState<string>(HARDCODED_TOKEN);
     const [pubKey] = useState<string>(HARDCODED_PUBLIC_KEY);
+    const { isOpen, onOpen, onClose } = useDisclosure();
 
     return (
-        <div className={`w-full rounded border p-4 ${accentClass}`}>
-            <p className="font-semibold">{title}</p>
-            {dm ? (
-                <div className="mt-3 flex flex-col gap-3">
-                    <Input
-                        label="My Token"
-                        value={token}
-                        isReadOnly
-                        labelPlacement="outside"
-                    />
-                    <Input
-                        label="My Public Key"
-                        value={pubKey}
-                        isReadOnly
-                        labelPlacement="outside"
-                    />
+        <>
+            <div className={`w-full rounded-lg border-2 p-4 shadow-sm ${accentClass}`}>
+                <div className="flex items-center justify-between">
+                    <p className="font-semibold text-lg">{title}</p>
+                    <Button 
+                        size="sm" 
+                        color="primary" 
+                        variant="flat"
+                        onPress={onOpen}
+                        isDisabled={!dm}
+                    >
+                        View Details
+                    </Button>
                 </div>
-            ) : (
-                <p className="text-sm text-gray-600">Initializing credentials...</p>
-            )}
-        </div>
+                {dm ? (
+                    <div className="mt-3 flex flex-col gap-2">
+                        <div className="text-sm">
+                            <span className="font-medium">Token: </span>
+                            <span className="text-gray-600">{token.substring(0, 20)}...</span>
+                        </div>
+                        <div className="text-sm">
+                            <span className="font-medium">Public Key: </span>
+                            <span className="text-gray-600">{pubKey.substring(0, 30)}...</span>
+                        </div>
+                    </div>
+                ) : (
+                    <p className="text-sm text-gray-600 mt-2">Initializing credentials...</p>
+                )}
+            </div>
+
+            <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">
+                <ModalContent>
+                    <ModalHeader className="flex flex-col gap-1">
+                        <h2 className="text-2xl font-bold">My Credentials</h2>
+                        <p className="text-sm text-gray-500">Share these credentials to receive messages</p>
+                    </ModalHeader>
+                    <ModalBody>
+                        {dm ? (
+                            <div className="flex flex-col gap-4">
+                                <Input
+                                    label="My Token"
+                                    value={token}
+                                    isReadOnly
+                                    labelPlacement="outside"
+                                    description="Share this token with others so they can send you messages"
+                                />
+                                <Input
+                                    label="My Public Key"
+                                    value={pubKey}
+                                    isReadOnly
+                                    labelPlacement="outside"
+                                    description="Share this public key along with your token"
+                                />
+                            </div>
+                        ) : (
+                            <p className="text-center text-gray-600 py-4">Initializing credentials...</p>
+                        )}
+                    </ModalBody>
+                    <ModalFooter>
+                        <Button color="danger" variant="light" onPress={onClose}>
+                            Close
+                        </Button>
+                        {dm && (
+                            <Button 
+                                color="primary" 
+                                onPress={() => {
+                                    navigator.clipboard.writeText(`Token: ${token}\nPublic Key: ${pubKey}`);
+                                    alert('Credentials copied to clipboard!');
+                                }}
+                            >
+                                Copy All
+                            </Button>
+                        )}
+                    </ModalFooter>
+                </ModalContent>
+            </Modal>
+        </>
     )
+}
+
+// Export status hooks for use in page
+export function useSDKStatus() {
+    return useContext(SDKStatusContext);
+}
+
+export function useCredentialsStatus() {
+    return useContext(CredentialsStatusContext);
+}
+
+export function useDMClient() {
+    return useContext(XXDMClient);
 }
 
 // XXDirectMessagesReceived is just a buffer of received event messages
@@ -364,12 +460,120 @@ export function XXDirectMessagesReceived() {
 
     if (msgs === null || msgs.length == 0) {
         return (
-            <div>Nothing yet...</div>
+            <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                <div className="text-4xl mb-4">📭</div>
+                <p className="text-lg font-medium">No messages yet</p>
+                <p className="text-sm mt-2">Messages will appear here when received</p>
+            </div>
         )
     }
 
-    const msgOut = msgs.map((m, idx) => <div key={`${idx}-${m}`} className="[overflow-anchor:none] break-words">{m}</div>);
+    const msgOut = msgs.map((m, idx) => {
+        const msgStr = String(m);
+        // Try to parse JSON messages
+        let parsedMessage = null;
+        try {
+            parsedMessage = JSON.parse(msgStr);
+        } catch (e) {
+            // Not JSON, display as plain text
+        }
+
+        // Check if it's a decrypted message
+        if (msgStr.includes('Decrypted Message: ')) {
+            const decryptedContent = msgStr.replace('Decrypted Message: ', '');
+            let reportData = null;
+            try {
+                reportData = JSON.parse(decryptedContent);
+            } catch (e) {
+                // Not JSON
+            }
+
+            if (reportData && reportData.type === 'whistleblower_report') {
+                return (
+                    <div key={`${idx}-${m}`} className="mb-4 p-4 bg-white border-2 border-green-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <span className="text-2xl">🌱</span>
+                                <div>
+                                    <h3 className="font-bold text-green-800">Whistleblower Report</h3>
+                                    <p className="text-xs text-gray-500">{new Date(reportData.timestamp).toLocaleString()}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="space-y-3">
+                            {reportData.issueType && (
+                                <div className="flex gap-2">
+                                    <span className="font-semibold text-sm text-gray-700 min-w-[120px]">Issue Type:</span>
+                                    <span className="text-sm text-gray-900">{reportData.issueType}</span>
+                                </div>
+                            )}
+                            {reportData.category && (
+                                <div className="flex gap-2">
+                                    <span className="font-semibold text-sm text-gray-700 min-w-[120px]">Category:</span>
+                                    <span className="text-sm text-gray-900">{reportData.category}</span>
+                                </div>
+                            )}
+                            {reportData.severity && (
+                                <div className="flex gap-2">
+                                    <span className="font-semibold text-sm text-gray-700 min-w-[120px]">Severity:</span>
+                                    <span className={`text-sm font-medium px-2 py-1 rounded ${
+                                        reportData.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                                        reportData.severity === 'high' ? 'bg-orange-100 text-orange-800' :
+                                        reportData.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                                        'bg-gray-100 text-gray-800'
+                                    }`}>
+                                        {reportData.severity}
+                                    </span>
+                                </div>
+                            )}
+                            {reportData.location && (
+                                <div className="flex gap-2">
+                                    <span className="font-semibold text-sm text-gray-700 min-w-[120px]">Location:</span>
+                                    <span className="text-sm text-gray-900">📍 {reportData.location}</span>
+                                </div>
+                            )}
+                            {reportData.description && (
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                    <span className="font-semibold text-sm text-gray-700 block mb-2">Description:</span>
+                                    <p className="text-sm text-gray-900 whitespace-pre-wrap bg-gray-50 p-3 rounded border border-gray-200">
+                                        {reportData.description}
+                                    </p>
+                                </div>
+                            )}
+                            {reportData.evidence && (
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                    <span className="font-semibold text-sm text-gray-700 block mb-2">Evidence:</span>
+                                    <p className="text-sm text-gray-900 whitespace-pre-wrap bg-gray-50 p-3 rounded border border-gray-200">
+                                        {reportData.evidence}
+                                    </p>
+                                </div>
+                            )}
+                            {reportData.evmAddress && (
+                                <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200">
+                                    <span className="font-semibold text-sm text-gray-700 min-w-[120px]">EVM Address:</span>
+                                    <span className="text-sm text-gray-900 font-mono bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                                        {reportData.evmAddress}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+        }
+
+        // Display as regular message
+        return (
+            <div key={`${idx}-${msgStr}`} className="mb-3 p-3 bg-white border border-gray-300 rounded-lg shadow-sm [overflow-anchor:none] break-words">
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{msgStr}</p>
+            </div>
+        );
+    });
+
     return (
-        msgOut
+        <div className="space-y-2">
+            {msgOut}
+            <div id="anchor2" className="h-1 [overflow-anchor:auto]" />
+        </div>
     )
 }
