@@ -7,6 +7,9 @@ WhistlePodu is a privacy-first whistleblowing protocol that uses the xxNetwork t
 <img width="999" height="564" alt="Screenshot 2025-11-22 at 10 12 36 AM" src="https://github.com/user-attachments/assets/f7f212a6-236d-4343-94e3-d8509900f506" />
 
 
+**Note - Public RPC endpoints expose your IP address, location, and timing metadata because every request connects directly from your device, allowing RPC operators or third parties to correlate your activity with your identity.
+WhistlePodu eliminates this risk by routing all submissions through xxNetwork’s cMix layer, which shreds metadata and hides IPs, ensuring the blockchain only ever sees anonymized, untraceable relayed traffic **
+
 ## 🌟 Key Features
 
 - **Quantum-Resistant Privacy**: Uses xxNetwork for metadata shredding and complete anonymity
