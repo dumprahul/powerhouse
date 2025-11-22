@@ -55,7 +55,7 @@ function WhistleblowerForm() {
     location: '',
     description: '',
     evidence: '',
-    evmAddress: '',
+    hederaAccountId: '',
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -90,7 +90,7 @@ function WhistleblowerForm() {
       location: formData.location,
       description: formData.description,
       evidence: formData.evidence,
-      evmAddress: formData.evmAddress,
+      hederaAccountId: formData.hederaAccountId,
     };
 
     const messageText = JSON.stringify(reportData, null, 2);
@@ -111,7 +111,7 @@ function WhistleblowerForm() {
             location: '',
             description: '',
             evidence: '',
-            evmAddress: '',
+            hederaAccountId: '',
           });
           setSubmitStatus('idle');
         }, 2000);
@@ -323,17 +323,18 @@ function WhistleblowerForm() {
 
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-3">
-            EVM Address
+            Hedera Account ID
           </label>
           <Input
-            placeholder="0x..."
-            value={formData.evmAddress}
-            onChange={(e) => handleChange('evmAddress', e.target.value)}
+            placeholder="0.0.5161124"
+            value={formData.hederaAccountId}
+            onChange={(e) => handleChange('hederaAccountId', e.target.value)}
             classNames={{
               input: "min-h-12 text-gray-900 font-medium font-mono",
               inputWrapper: "bg-white border-2 border-gray-300 hover:border-green-400 focus-within:border-green-500 transition-colors shadow-sm rounded-lg",
             }}
-            description="Enter your Ethereum Virtual Machine (EVM) compatible address"
+            description="Enter your Hedera Account ID (e.g., 0.0.5161124)"
+            pattern="^0\.0\.\d+$"
           />
         </div>
 
@@ -349,7 +350,7 @@ function WhistleblowerForm() {
                 location: '',
                 description: '',
                 evidence: '',
-                evmAddress: '',
+                hederaAccountId: '',
               });
             }}
             className="min-w-[120px]"

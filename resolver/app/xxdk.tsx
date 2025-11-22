@@ -173,7 +173,6 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
                 const timestamp = new Date().toLocaleString();
                 setDMReceiver((prev) => [...prev, `✅ HCS: Message committed successfully at ${timestamp}`]);
                 setDMReceiver((prev) => [...prev, `🔗 HCS: Transaction ID: ${result.transactionId}`]);
-                setDMReceiver((prev) => [...prev, `⏱️ HCS: Consensus Timestamp: ${result.consensusTimestamp}`]);
                 setDMReceiver((prev) => [...prev, `📊 HCS: Status: ${result.status}`]);
                 setDMReceiver((prev) => [...prev, `🌐 HCS: Explorer: ${result.hashscanUrl}`]);
             } catch (error: any) {
@@ -667,7 +666,16 @@ export function XXDirectMessagesReceived() {
                                     </p>
                                 </div>
                             )}
-                            {reportData.evmAddress && (
+                            {reportData.hederaAccountId && (
+                                <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200">
+                                    <span className="font-semibold text-sm text-gray-700 min-w-[120px]">Hedera Account ID:</span>
+                                    <span className="text-sm text-gray-900 font-mono bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                                        {reportData.hederaAccountId}
+                                    </span>
+                                </div>
+                            )}
+                            {/* Backward compatibility - also check for evmAddress */}
+                            {reportData.evmAddress && !reportData.hederaAccountId && (
                                 <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200">
                                     <span className="font-semibold text-sm text-gray-700 min-w-[120px]">EVM Address:</span>
                                     <span className="text-sm text-gray-900 font-mono bg-gray-50 px-2 py-1 rounded border border-gray-200">
@@ -693,14 +701,6 @@ export function XXDirectMessagesReceived() {
                                             <span className="font-semibold text-xs text-gray-700 min-w-[110px]">Transaction ID:</span>
                                             <span className="text-xs text-gray-900 font-mono bg-white px-2 py-1 rounded border border-green-200 break-all">
                                                 {hcsTxId}
-                                            </span>
-                                        </div>
-                                    )}
-                                    {hcsTimestamp && (
-                                        <div className="flex gap-2 items-center">
-                                            <span className="font-semibold text-xs text-gray-700 min-w-[110px]">Timestamp:</span>
-                                            <span className="text-xs text-gray-900 font-mono bg-white px-2 py-1 rounded border border-green-200">
-                                                {hcsTimestamp}
                                             </span>
                                         </div>
                                     )}
