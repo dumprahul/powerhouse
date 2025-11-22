@@ -117,3 +117,16 @@ label {
   color: #374151;
   font-size: 0.875rem;
 }
+
+/* Modal z-index fix */
+[data-slot="base"][role="dialog"] {
+  z-index: 99999 !important;
+}
+
+.nextui-modal-wrapper {
+  z-index: 99999 !important;
+}
+
+.nextui-backdrop {
+  z-index: 99998 !important;
+}

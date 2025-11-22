@@ -58,7 +58,7 @@ function HomeContent() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
             <div className="flex-1">
               <h1 className="text-3xl font-bold text-gray-800 mb-3">
-                🔵 Client 2 - Message Receiver
+                🔵 Resolver - Message Receiver
               </h1>
               <p className="text-gray-600 text-base">
                 Receive and view whistleblower reports securely via xx Network
@@ -74,7 +74,7 @@ function HomeContent() {
         {/* Credentials Card */}
         <div className="mb-8">
           <XXMyCredentials 
-            title="🔵 CLIENT 2 - MY CREDENTIALS" 
+            title="🔵 RESOLVER - MY CREDENTIALS" 
             accentClass="border-purple-300 bg-purple-50" 
           />
         </div>

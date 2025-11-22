@@ -69,11 +69,11 @@ export function XXNetwork({ children }: { children: React.ReactNode }) {
 
     return (
         <SDKStatusContext.Provider value={sdkStatus}>
-            <XXContext.Provider value={XXDKUtils}>
-                <XXNet.Provider value={XXCMix}>
-                { children }
-                </XXNet.Provider>
-            </XXContext.Provider>
+        <XXContext.Provider value={XXDKUtils}>
+            <XXNet.Provider value={XXCMix}>
+            { children }
+            </XXNet.Provider>
+        </XXContext.Provider>
         </SDKStatusContext.Provider>
     )
 }
@@ -146,6 +146,45 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
         const cipher = xx.NewDatabaseCipher(xxNet.GetID(),
             Buffer.from(MESSAGE_DB_PASSWORD), 725);
 
+        // Function to commit decrypted messages to Hedera Consensus Service
+        const commitMessageToHCS = async (message: string) => {
+            try {
+                // Add log for starting HCS commit
+                setDMReceiver((prev) => [...prev, `🔄 HCS: Starting commit to Hedera Consensus Service...`]);
+                
+                // Dynamically import the HCS client function
+                const { submitMessageToHCS, getOrCreateTopic } = await import('@/lib/hcs-client');
+                
+                // Check if topic exists or create one
+                const topicId = await getOrCreateTopic();
+                setDMReceiver((prev) => [...prev, `📌 HCS: Using Topic ID: ${topicId}`]);
+                
+                console.log(`${CLIENT_LOG_PREFIX}Committing message to HCS topic: ${topicId}`);
+                setDMReceiver((prev) => [...prev, `⏳ HCS: Submitting message to Hedera network...`]);
+                
+                const result = await submitMessageToHCS(message);
+                
+                console.log(`${CLIENT_LOG_PREFIX}✅ Message committed to HCS successfully`);
+                console.log(`${CLIENT_LOG_PREFIX}Transaction ID: ${result.transactionId}`);
+                console.log(`${CLIENT_LOG_PREFIX}Hashscan URL: ${result.hashscanUrl}`);
+                console.log(`${CLIENT_LOG_PREFIX}Consensus Timestamp: ${result.consensusTimestamp}`);
+                
+                // Add detailed HCS logs to the UI
+                const timestamp = new Date().toLocaleString();
+                setDMReceiver((prev) => [...prev, `✅ HCS: Message committed successfully at ${timestamp}`]);
+                setDMReceiver((prev) => [...prev, `🔗 HCS: Transaction ID: ${result.transactionId}`]);
+                setDMReceiver((prev) => [...prev, `⏱️ HCS: Consensus Timestamp: ${result.consensusTimestamp}`]);
+                setDMReceiver((prev) => [...prev, `📊 HCS: Status: ${result.status}`]);
+                setDMReceiver((prev) => [...prev, `🌐 HCS: Explorer: ${result.hashscanUrl}`]);
+            } catch (error: any) {
+                console.error(`${CLIENT_LOG_PREFIX}Failed to commit message to HCS:`, error);
+                const errorMessage = error?.message || 'Unknown error';
+                setDMReceiver((prev) => [...prev, `❌ HCS: Failed to commit - ${errorMessage}`]);
+                setDMReceiver((prev) => [...prev, `⚠️ HCS: Error occurred at ${new Date().toLocaleString()}`]);
+                // Don't throw - allow message to display even if HCS fails
+            }
+        };
+
         // The following handles events, namely to decrypt messages
         const onDmEvent = (eventType: number, data: Uint8Array) => {
             const msg = Buffer.from(data)
@@ -179,8 +218,14 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
                     }
 
                     const plaintext = Buffer.from(cipher.Decrypt(message.text));
-                    dmReceiver.push("Decrypted Message: " + plaintext.toString('utf-8'));
-                    setDMReceiver([...dmReceiver]);
+                    const decryptedMessage = plaintext.toString('utf-8');
+                    setDMReceiver((prev) => [...prev, "Decrypted Message: " + decryptedMessage]);
+
+                    // Commit message to Hedera Consensus Service (HCS)
+                    commitMessageToHCS(decryptedMessage).catch((hcsError) => {
+                        console.error(`${CLIENT_LOG_PREFIX}Error committing to HCS:`, hcsError);
+                        // Don't block message display if HCS fails
+                    });
         
                 });
             }
@@ -198,7 +243,7 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
                     const pubKey = Buffer.from(client.GetPublicKey()).toString('base64');
                     console.log(`${CLIENT_LOG_PREFIX}DMTOKEN: ${token}`);
                     console.log(`${CLIENT_LOG_PREFIX}DMPUBKEY: ${pubKey}`);
-                    
+
                     // Verify credentials match hardcoded values
                     if (String(token) !== HARDCODED_TOKEN || pubKey !== HARDCODED_PUBLIC_KEY) {
                         console.warn(`${CLIENT_LOG_PREFIX}⚠️ WARNING: Generated credentials don't match hardcoded values!`);
@@ -232,11 +277,11 @@ export function XXDirectMessages({ children }: { children: React.ReactNode }) {
 
     return (
         <CredentialsStatusContext.Provider value={credentialsStatus}>
-            <XXDMClient.Provider value={dmClient}>
-                <XXDMReceiver.Provider value={dmReceiver}>
-                { children }
-                </XXDMReceiver.Provider>
-            </XXDMClient.Provider>
+        <XXDMClient.Provider value={dmClient}>
+            <XXDMReceiver.Provider value={dmReceiver}>
+            { children }
+            </XXDMReceiver.Provider>
+        </XXDMClient.Provider>
         </CredentialsStatusContext.Provider>
     );
 }
@@ -354,7 +399,7 @@ export function XXMsgSender({
     )
 }
 
-export function XXMyCredentials({ title = "📋 MY CREDENTIALS", accentClass = "border-blue-300 bg-blue-50" }: { title?: string; accentClass?: string }) {
+export function XXMyCredentials({ title = "📋 RESOLVER - MY CREDENTIALS", accentClass = "border-blue-300 bg-blue-50" }: { title?: string; accentClass?: string }) {
     const dm = useContext(XXDMClient);
     const [token] = useState<string>(HARDCODED_TOKEN);
     const [pubKey] = useState<string>(HARDCODED_PUBLIC_KEY);
@@ -391,31 +436,39 @@ export function XXMyCredentials({ title = "📋 MY CREDENTIALS", accentClass = "
                 )}
             </div>
 
-            <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">
-                <ModalContent>
-                    <ModalHeader className="flex flex-col gap-1">
-                        <h2 className="text-2xl font-bold">My Credentials</h2>
-                        <p className="text-sm text-gray-500">Share these credentials to receive messages</p>
+            <Modal 
+                isOpen={isOpen} 
+                onClose={onClose} 
+                size="md" 
+                scrollBehavior="inside"
+                classNames={{
+                    wrapper: "z-[99999]",
+                    base: "z-[99999]",
+                    backdrop: "z-[99998]",
+                }}
+                style={{ zIndex: 99999 }}
+            >
+                <ModalContent className="z-[99999]">
+                    <ModalHeader>
+                        <h2 className="text-lg font-bold">Credentials</h2>
                     </ModalHeader>
                     <ModalBody>
-                        {dm ? (
+            {dm ? (
                             <div className="flex flex-col gap-4">
-                                <Input
-                                    label="My Token"
-                                    value={token}
-                                    isReadOnly
-                                    labelPlacement="outside"
-                                    description="Share this token with others so they can send you messages"
-                                />
-                                <Input
-                                    label="My Public Key"
-                                    value={pubKey}
-                                    isReadOnly
-                                    labelPlacement="outside"
-                                    description="Share this public key along with your token"
-                                />
-                            </div>
-                        ) : (
+                    <Input
+                                    label="Token"
+                        value={token}
+                        isReadOnly
+                        labelPlacement="outside"
+                    />
+                    <Input
+                                    label="Public Key"
+                        value={pubKey}
+                        isReadOnly
+                        labelPlacement="outside"
+                    />
+                </div>
+            ) : (
                             <p className="text-center text-gray-600 py-4">Initializing credentials...</p>
                         )}
                     </ModalBody>
@@ -423,17 +476,6 @@ export function XXMyCredentials({ title = "📋 MY CREDENTIALS", accentClass = "
                         <Button color="danger" variant="light" onPress={onClose}>
                             Close
                         </Button>
-                        {dm && (
-                            <Button 
-                                color="primary" 
-                                onPress={() => {
-                                    navigator.clipboard.writeText(`Token: ${token}\nPublic Key: ${pubKey}`);
-                                    alert('Credentials copied to clipboard!');
-                                }}
-                            >
-                                Copy All
-                            </Button>
-                        )}
                     </ModalFooter>
                 </ModalContent>
             </Modal>
@@ -470,6 +512,54 @@ export function XXDirectMessagesReceived() {
 
     const msgOut = msgs.map((m, idx) => {
         const msgStr = String(m);
+        
+        // Check if it's an HCS log message
+        if (msgStr.includes('HCS:')) {
+            const isSuccess = msgStr.includes('✅');
+            const isError = msgStr.includes('❌');
+            const isInfo = msgStr.includes('📌') || msgStr.includes('🔗') || msgStr.includes('⏱️') || msgStr.includes('📊') || msgStr.includes('🌐');
+            const isProcessing = msgStr.includes('🔄') || msgStr.includes('⏳');
+            
+            // Check if it's an explorer link
+            if (msgStr.includes('Explorer: ')) {
+                const url = msgStr.split('Explorer: ')[1];
+                return (
+                    <div key={`${idx}-${m}`} className="mb-2 p-3 bg-blue-50 border-l-4 border-blue-500 rounded shadow-sm">
+                        <div className="flex items-start gap-2">
+                            <span className="text-lg">🌐</span>
+                            <div className="flex-1">
+                                <p className="text-sm font-semibold text-blue-800 mb-1">HCS Transaction Explorer</p>
+                                <a 
+                                    href={url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 hover:text-blue-800 underline break-all font-mono"
+                                >
+                                    {url}
+                                </a>
+                                <p className="text-xs text-blue-600 mt-1">Click to view on Hashscan</p>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+            
+            return (
+                <div key={`${idx}-${m}`} className={`mb-2 p-2 rounded text-sm ${
+                    isSuccess ? 'bg-green-50 border-l-4 border-green-500 text-green-800' :
+                    isError ? 'bg-red-50 border-l-4 border-red-500 text-red-800' :
+                    isInfo ? 'bg-blue-50 border-l-4 border-blue-500 text-blue-800' :
+                    isProcessing ? 'bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800' :
+                    'bg-gray-50 border-l-4 border-gray-300 text-gray-700'
+                }`}>
+                    <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs">{new Date().toLocaleTimeString()}</span>
+                        <span className="flex-1">{msgStr}</span>
+                    </div>
+                </div>
+            );
+        }
+        
         // Try to parse JSON messages
         let parsedMessage = null;
         try {
@@ -489,9 +579,32 @@ export function XXDirectMessagesReceived() {
             }
 
             if (reportData && reportData.type === 'whistleblower_report') {
+                // Find HCS transaction info from subsequent messages
+                const hcsTxIdMsg = msgs.slice(idx + 1).find((msg) => {
+                    const msgStr = String(msg);
+                    return msgStr.includes('HCS: Transaction ID: ');
+                });
+                const hcsExplorerMsg = msgs.slice(idx + 1).find((msg) => {
+                    const msgStr = String(msg);
+                    return msgStr.includes('HCS: Explorer: ');
+                });
+                const hcsTimestampMsg = msgs.slice(idx + 1).find((msg) => {
+                    const msgStr = String(msg);
+                    return msgStr.includes('HCS: Consensus Timestamp: ');
+                });
+                const hcsStatusMsg = msgs.slice(idx + 1).find((msg) => {
+                    const msgStr = String(msg);
+                    return msgStr.includes('HCS: Status: ');
+                });
+                
+                const hcsTxId = hcsTxIdMsg ? String(hcsTxIdMsg).split('Transaction ID: ')[1]?.trim() : null;
+                const hcsExplorerUrl = hcsExplorerMsg ? String(hcsExplorerMsg).split('Explorer: ')[1]?.trim() : null;
+                const hcsTimestamp = hcsTimestampMsg ? String(hcsTimestampMsg).split('Consensus Timestamp: ')[1]?.trim() : null;
+                const hcsStatus = hcsStatusMsg ? String(hcsStatusMsg).split('Status: ')[1]?.trim() : null;
+                
                 return (
-                    <div key={`${idx}-${m}`} className="mb-4 p-4 bg-white border-2 border-green-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex items-start justify-between mb-3">
+                    <div key={`${idx}-${m}`} className="mb-4 p-5 bg-white border-2 border-green-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-start justify-between mb-4">
                             <div className="flex items-center gap-2">
                                 <span className="text-2xl">🌱</span>
                                 <div>
@@ -499,6 +612,12 @@ export function XXDirectMessagesReceived() {
                                     <p className="text-xs text-gray-500">{new Date(reportData.timestamp).toLocaleString()}</p>
                                 </div>
                             </div>
+                            {hcsTxId && (
+                                <div className="flex items-center gap-2 px-3 py-1 bg-green-100 rounded-full">
+                                    <span className="text-xs">✅</span>
+                                    <span className="text-xs font-semibold text-green-700">Committed to HCS</span>
+                                </div>
+                            )}
                         </div>
                         <div className="space-y-3">
                             {reportData.issueType && (
@@ -557,15 +676,91 @@ export function XXDirectMessagesReceived() {
                                 </div>
                             )}
                         </div>
+                        
+                        {/* HCS Transaction Information */}
+                        {(hcsTxId || hcsExplorerUrl) && (
+                            <div className="mt-4 pt-4 border-t-2 border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <span className="text-xl">⛓️</span>
+                                    <h4 className="font-bold text-green-800">Hedera Consensus Service</h4>
+                                    <span className="ml-auto text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full font-semibold">
+                                        ✅ Committed
+                                    </span>
+                                </div>
+                                <div className="space-y-2">
+                                    {hcsTxId && (
+                                        <div className="flex gap-2 items-center">
+                                            <span className="font-semibold text-xs text-gray-700 min-w-[110px]">Transaction ID:</span>
+                                            <span className="text-xs text-gray-900 font-mono bg-white px-2 py-1 rounded border border-green-200 break-all">
+                                                {hcsTxId}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {hcsTimestamp && (
+                                        <div className="flex gap-2 items-center">
+                                            <span className="font-semibold text-xs text-gray-700 min-w-[110px]">Timestamp:</span>
+                                            <span className="text-xs text-gray-900 font-mono bg-white px-2 py-1 rounded border border-green-200">
+                                                {hcsTimestamp}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {hcsStatus && (
+                                        <div className="flex gap-2 items-center">
+                                            <span className="font-semibold text-xs text-gray-700 min-w-[110px]">Status:</span>
+                                            <span className="text-xs text-green-700 font-semibold bg-white px-2 py-1 rounded border border-green-200">
+                                                {hcsStatus}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {hcsExplorerUrl && (
+                                        <div className="flex gap-2 items-center mt-3 pt-2 border-t border-green-200">
+                                            <span className="font-semibold text-xs text-gray-700 min-w-[110px]">Explorer:</span>
+                                            <a
+                                                href={hcsExplorerUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-mono break-all bg-white px-2 py-1 rounded border border-green-200 inline-flex items-center gap-1"
+                                            >
+                                                <span>🌐</span>
+                                                <span>View on Hashscan</span>
+                                                <span>↗</span>
+                                            </a>
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-2 mt-3 pt-2 border-t border-green-200">
+                                        <span className="text-xs text-green-700 flex items-center gap-1">
+                                            <span>🔒</span>
+                                            <span>Immutably stored on Hedera network</span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 );
             }
         }
 
+        // Check if it's an event log
+        if (msgStr.includes('onDmEvent called') || msgStr.includes('EventType:')) {
+            return (
+                <div key={`${idx}-${msgStr}`} className="mb-2 p-2 bg-purple-50 border-l-4 border-purple-400 rounded text-xs text-purple-800 [overflow-anchor:none] break-words">
+                    <div className="flex items-center gap-2">
+                        <span>📡</span>
+                        <span className="font-mono">{new Date().toLocaleTimeString()}</span>
+                        <span className="flex-1">{msgStr}</span>
+                    </div>
+                </div>
+            );
+        }
+        
         // Display as regular message
         return (
             <div key={`${idx}-${msgStr}`} className="mb-3 p-3 bg-white border border-gray-300 rounded-lg shadow-sm [overflow-anchor:none] break-words">
-                <p className="text-sm text-gray-800 whitespace-pre-wrap">{msgStr}</p>
+                <div className="flex items-start gap-2">
+                    <span className="text-xs text-gray-400 font-mono mt-1">{new Date().toLocaleTimeString()}</span>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap flex-1">{msgStr}</p>
+                </div>
             </div>
         );
     });
