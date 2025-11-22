@@ -4,6 +4,9 @@
 
 WhistlePodu is a privacy-first whistleblowing protocol that uses the xxNetwork to shred metadata and protect user anonymity while securely delivering evidence. An off-chain resolver verifies each report, anchors a tamper-proof attestation on Hedera HCS, and rewards contributors with 10 WHISTLE HTS tokens for verified submissions. The protocol ensures trust, auditability, and quantum-resistant privacy while enabling communities to safely expose environmental or social issues.
 
+<img width="999" height="564" alt="Screenshot 2025-11-22 at 10 12 36 AM" src="https://github.com/user-attachments/assets/f7f212a6-236d-4343-94e3-d8509900f506" />
+
+
 ## 🌟 Key Features
 
 - **Quantum-Resistant Privacy**: Uses xxNetwork for metadata shredding and complete anonymity
